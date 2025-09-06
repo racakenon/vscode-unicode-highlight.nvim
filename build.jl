@@ -4,34 +4,33 @@ using Printf
 const DATA_DIR = joinpath(@__DIR__, "vscode-unicode-data", "out")
 const OUTPUT_FILE = joinpath(@__DIR__, "lua", "data.lua")
 
-function to_vim_unicode_regex(cp::Int)
-    hex_str = @sprintf "%X" cp
-    return "\\\\%u" * hex_str
-end
+
+utf8bytes(cp::Integer) = Int.(collect(codeunits(string(Char(cp)))))
+lua_array(arr::Array) = "{" * join(arr, ", ") * "}"
 
 function ambiguous_data_to_table(json_string::String)
     data = JSON.parse(json_string)
     data = JSON.parse(data)
 
-    # 변경: 중복을 허용하지 않는 Set을 생성하여 모든 유니코드를 저장합니다.
     unique_entries = Set()
 
-    for (key, values) in data
+    for (_, values) in data
         for i in 1:2:length(values)
             if i + 1 <= length(values)
-                cp1 = values[i]
-                cp2 = values[i+1]
-                entry = "    { \"$(to_vim_unicode_regex(cp1))\", \"$(to_vim_unicode_regex(cp2))\" }"
+				amb = values[i]
+				alt = values[i+1]
+				cp1 = utf8bytes(amb) |> lua_array
+				cp2 = utf8bytes(alt) |> lua_array
+				entry = "    { $cp1, $cp2, $amb, $alt }"
                 push!(unique_entries, entry)
             else
                 cp = values[i]
-                entry = "    { \"$(to_vim_unicode_regex(cp))\" }"
+                entry = "    { $cp }"
                 push!(unique_entries, entry)
             end
         end
     end
 
-    # 변경: Set에 저장된 모든 유니크한 항목들을 배열로 변환 후 정렬하고, 쉼표로 연결합니다.
     sorted_entries = sort(collect(unique_entries))
     return "{\n" * join(sorted_entries, ",\n") * "\n}"
 end
@@ -40,20 +39,18 @@ function invisible_data_to_table(json_string::String)
     data = JSON.parse(json_string)
     data = JSON.parse(data)
 
-    # 변경: 중복을 허용하지 않는 Set을 생성합니다.
     unique_patterns = Set()
 
-    for (key, values) in data
+    for (_, values) in data
         for i in values
-            code = to_vim_unicode_regex(i)
-            push!(unique_patterns, code)
+            code = utf8bytes(i)
+			code = lua_array(code) 
+			push!(unique_patterns, "{$code, $i}")
         end
     end
 
-    # 변경: Set의 각 항목에 따옴표를 붙이고 정렬한 뒤, 쉼표로 연결합니다.
-    # 
     sorted_patterns = sort(collect(unique_patterns))
-    formatted_entries = ["\"$p\"" for p in sorted_patterns]
+    formatted_entries = [p for p in sorted_patterns]
     return "{ " * join(formatted_entries, ", ") * " }"
 end
 
@@ -85,7 +82,7 @@ function main()
         println(" Successfully created $(OUTPUT_FILE)")
 
     catch e
-        @error "An error occurred during script execution:" e [cite: 8]
+        @error "An error occurred during script execution:" e [cite:8]
     end
 end
 
